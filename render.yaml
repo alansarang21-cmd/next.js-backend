@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: idenwebstudio-backend
+    env: node
+    region: singapore        # closest to Bengaluru; change to ohio/oregon if preferred
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      # Set these in the Render dashboard — do NOT hardcode secrets here:
+      # - MONGODB_URI
+      # - JWT_SECRET
+      # - GOOGLE_CLIENT_ID
+      # - CLOUDINARY_CLOUD_NAME
+      # - CLOUDINARY_API_KEY
+      # - CLOUDINARY_API_SECRET

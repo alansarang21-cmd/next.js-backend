@@ -301,11 +301,12 @@ app.get('/api/novels/slug/:slug', async (req, res) => {
   try {
     const novel = await Novel.findOne({ slug: req.params.slug });
     if (!novel) return res.status(404).json({ error: 'Novel not found' });
-    novel.views += 1;
-    novel.viewsToday += 1;
-    novel.viewsWeek  += 1;
-    novel.viewsMonth += 1;
-    await novel.save();
+    // Use $inc + timestamps:false so updatedAt is NOT touched by a view
+    await Novel.findByIdAndUpdate(
+      novel._id,
+      { $inc: { views: 1, viewsToday: 1, viewsWeek: 1, viewsMonth: 1 } },
+      { timestamps: false }
+    );
     res.json(novel);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -314,11 +315,12 @@ app.get('/api/novels/:id', async (req, res) => {
   try {
     const novel = await Novel.findById(req.params.id);
     if (!novel) return res.status(404).json({ error: 'Novel not found' });
-    novel.views += 1;
-    novel.viewsToday += 1;
-    novel.viewsWeek  += 1;
-    novel.viewsMonth += 1;
-    await novel.save();
+    // Use $inc + timestamps:false so updatedAt is NOT touched by a view
+    await Novel.findByIdAndUpdate(
+      novel._id,
+      { $inc: { views: 1, viewsToday: 1, viewsWeek: 1, viewsMonth: 1 } },
+      { timestamps: false }
+    );
     res.json(novel);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -484,10 +486,15 @@ app.post('/api/novels/:id/rate', requireAuth, async (req, res) => {
     const { rating } = req.body;
     const novel = await Novel.findById(req.params.id);
     if (!novel) return res.status(404).json({ error: 'Novel not found' });
-    novel.rating = Math.round((((novel.rating * novel.ratingCount) + rating) / (novel.ratingCount + 1)) * 10) / 10;
-    novel.ratingCount += 1;
-    await novel.save();
-    res.json({ rating: novel.rating, ratingCount: novel.ratingCount });
+    const newRating = Math.round((((novel.rating * novel.ratingCount) + rating) / (novel.ratingCount + 1)) * 10) / 10;
+    const newCount  = novel.ratingCount + 1;
+    // Use findByIdAndUpdate + timestamps:false so rating a novel doesn't affect updatedAt
+    await Novel.findByIdAndUpdate(
+      novel._id,
+      { rating: newRating, ratingCount: newCount },
+      { timestamps: false }
+    );
+    res.json({ rating: newRating, ratingCount: newCount });
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 

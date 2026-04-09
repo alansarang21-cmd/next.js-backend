@@ -301,13 +301,95 @@ app.get('/api/novels/slug/:slug', async (req, res) => {
   try {
     const novel = await Novel.findOne({ slug: req.params.slug });
     if (!novel) return res.status(404).json({ error: 'Novel not found' });
-    // Use $inc + timestamps:false so updatedAt is NOT touched by a view
-    await Novel.findByIdAndUpdate(
-      novel._id,
-      { $inc: { views: 1, viewsToday: 1, viewsWeek: 1, viewsMonth: 1 } },
-      { timestamps: false }
-    );
+    novel.views += 1;
+    novel.viewsToday += 1;
+    novel.viewsWeek  += 1;
+    novel.viewsMonth += 1;
+    await novel.save();
     res.json(novel);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/novels/by-tag/:tag ───────────────────────────────────────────────
+// Returns top novels that have a specific tag, sorted by views/rating/etc.
+// Used by the /best and /novels-like pages to auto-populate curated lists.
+// Query params:
+//   sort   = views | rating | week | month  (default: views)
+//   limit  = number of results              (default: 12, max: 50)
+//   status = ongoing | completed | hiatus   (optional filter)
+//
+// Example: GET /api/novels/by-tag/Regression?sort=views&limit=8
+app.get('/api/novels/by-tag/:tag', async (req, res) => {
+  try {
+    const { sort = 'views', limit = 12, status } = req.query;
+    const tag = req.params.tag;
+
+    const sortMap = {
+      rating:  { rating: -1 },
+      views:   { views: -1 },
+      week:    { viewsWeek: -1 },
+      month:   { viewsMonth: -1 },
+      new:     { updatedAt: -1 },
+    };
+
+    const query = {
+      tags: { $regex: new RegExp(`^${tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+    };
+    if (status) query.status = status;
+
+    const novels = await Novel.find(query)
+      .sort(sortMap[sort] || { views: -1 })
+      .limit(Math.min(Number(limit), 50))
+      .select('title slug cover rating ratingCount views status genres tags chapterCount updatedAt');
+
+    res.json({ novels, total: novels.length, tag });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/novels/slug/:slug/similar ────────────────────────────────────────
+// Returns novels similar to the given slug, ranked by number of shared tags.
+// Falls back to shared genres if tag overlap is low.
+// Query params:
+//   limit = number of results (default: 8, max: 20)
+//
+// Example: GET /api/novels/slug/solo-leveling/similar?limit=6
+app.get('/api/novels/slug/:slug/similar', async (req, res) => {
+  try {
+    const { limit = 8 } = req.query;
+    const source = await Novel.findOne({ slug: req.params.slug })
+      .select('title tags genres _id');
+
+    if (!source) return res.status(404).json({ error: 'Novel not found' });
+
+    const sourceTags   = source.tags   || [];
+    const sourceGenres = source.genres || [];
+
+    if (sourceTags.length === 0 && sourceGenres.length === 0) {
+      return res.json({ novels: [], sourceSlug: req.params.slug });
+    }
+
+    // Find all novels sharing at least one tag or genre (exclude self)
+    const candidates = await Novel.find({
+      _id:  { $ne: source._id },
+      $or: [
+        ...(sourceTags.length   ? [{ tags:   { $in: sourceTags   } }] : []),
+        ...(sourceGenres.length ? [{ genres: { $in: sourceGenres } }] : []),
+      ],
+    }).select('title slug cover rating ratingCount views status genres tags chapterCount updatedAt');
+
+    // Score each candidate: 2 pts per shared tag, 1 pt per shared genre
+    const scored = candidates.map(novel => {
+      const sharedTags   = (novel.tags   || []).filter(t => sourceTags.includes(t)).length;
+      const sharedGenres = (novel.genres || []).filter(g => sourceGenres.includes(g)).length;
+      const score = (sharedTags * 2) + sharedGenres;
+      return { novel, score };
+    });
+
+    // Sort by score desc, then views desc as tiebreaker
+    scored.sort((a, b) => b.score - a.score || b.novel.views - a.novel.views);
+
+    const novels = scored.slice(0, Math.min(Number(limit), 20)).map(s => s.novel);
+    res.json({ novels, sourceSlug: req.params.slug, sourceTitle: source.title });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -315,12 +397,11 @@ app.get('/api/novels/:id', async (req, res) => {
   try {
     const novel = await Novel.findById(req.params.id);
     if (!novel) return res.status(404).json({ error: 'Novel not found' });
-    // Use $inc + timestamps:false so updatedAt is NOT touched by a view
-    await Novel.findByIdAndUpdate(
-      novel._id,
-      { $inc: { views: 1, viewsToday: 1, viewsWeek: 1, viewsMonth: 1 } },
-      { timestamps: false }
-    );
+    novel.views += 1;
+    novel.viewsToday += 1;
+    novel.viewsWeek  += 1;
+    novel.viewsMonth += 1;
+    await novel.save();
     res.json(novel);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -486,15 +567,10 @@ app.post('/api/novels/:id/rate', requireAuth, async (req, res) => {
     const { rating } = req.body;
     const novel = await Novel.findById(req.params.id);
     if (!novel) return res.status(404).json({ error: 'Novel not found' });
-    const newRating = Math.round((((novel.rating * novel.ratingCount) + rating) / (novel.ratingCount + 1)) * 10) / 10;
-    const newCount  = novel.ratingCount + 1;
-    // Use findByIdAndUpdate + timestamps:false so rating a novel doesn't affect updatedAt
-    await Novel.findByIdAndUpdate(
-      novel._id,
-      { rating: newRating, ratingCount: newCount },
-      { timestamps: false }
-    );
-    res.json({ rating: newRating, ratingCount: newCount });
+    novel.rating = Math.round((((novel.rating * novel.ratingCount) + rating) / (novel.ratingCount + 1)) * 10) / 10;
+    novel.ratingCount += 1;
+    await novel.save();
+    res.json({ rating: novel.rating, ratingCount: novel.ratingCount });
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 

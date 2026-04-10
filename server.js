@@ -296,57 +296,7 @@ app.get('/api/novels', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET novel by slug (for clean URLs)
-app.get('/api/novels/slug/:slug', async (req, res) => {
-  try {
-    const novel = await Novel.findOne({ slug: req.params.slug });
-    if (!novel) return res.status(404).json({ error: 'Novel not found' });
-    novel.views += 1;
-    novel.viewsToday += 1;
-    novel.viewsWeek  += 1;
-    novel.viewsMonth += 1;
-    await novel.save();
-    res.json(novel);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ── GET /api/novels/by-tag/:tag ───────────────────────────────────────────────
-// Returns top novels that have a specific tag, sorted by views/rating/etc.
-// Used by the /best and /novels-like pages to auto-populate curated lists.
-// Query params:
-//   sort   = views | rating | week | month  (default: views)
-//   limit  = number of results              (default: 12, max: 50)
-//   status = ongoing | completed | hiatus   (optional filter)
-//
-// Example: GET /api/novels/by-tag/Regression?sort=views&limit=8
-app.get('/api/novels/by-tag/:tag', async (req, res) => {
-  try {
-    const { sort = 'views', limit = 12, status } = req.query;
-    const tag = req.params.tag;
-
-    const sortMap = {
-      rating:  { rating: -1 },
-      views:   { views: -1 },
-      week:    { viewsWeek: -1 },
-      month:   { viewsMonth: -1 },
-      new:     { updatedAt: -1 },
-    };
-
-    const query = {
-      tags: { $regex: new RegExp(`^${tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
-    };
-    if (status) query.status = status;
-
-    const novels = await Novel.find(query)
-      .sort(sortMap[sort] || { views: -1 })
-      .limit(Math.min(Number(limit), 50))
-      .select('title slug cover rating ratingCount views status genres tags chapterCount updatedAt');
-
-    res.json({ novels, total: novels.length, tag });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ── GET /api/novels/slug/:slug/similar ────────────────────────────────────────
+// ── GET /api/novels/slug/:slug/similar ── MUST be before /slug/:slug ─────────
 // Returns novels similar to the given slug, ranked by number of shared tags.
 // Falls back to shared genres if tag overlap is low.
 // Query params:
@@ -390,6 +340,56 @@ app.get('/api/novels/slug/:slug/similar', async (req, res) => {
 
     const novels = scored.slice(0, Math.min(Number(limit), 20)).map(s => s.novel);
     res.json({ novels, sourceSlug: req.params.slug, sourceTitle: source.title });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/novels/by-tag/:tag ── MUST be before /slug/:slug ────────────────
+// Returns top novels that have a specific tag, sorted by views/rating/etc.
+// Used by the /best and /novels-like pages to auto-populate curated lists.
+// Query params:
+//   sort   = views | rating | week | month  (default: views)
+//   limit  = number of results              (default: 12, max: 50)
+//   status = ongoing | completed | hiatus   (optional filter)
+//
+// Example: GET /api/novels/by-tag/Regression?sort=views&limit=8
+app.get('/api/novels/by-tag/:tag', async (req, res) => {
+  try {
+    const { sort = 'views', limit = 12, status } = req.query;
+    const tag = req.params.tag;
+
+    const sortMap = {
+      rating:  { rating: -1 },
+      views:   { views: -1 },
+      week:    { viewsWeek: -1 },
+      month:   { viewsMonth: -1 },
+      new:     { updatedAt: -1 },
+    };
+
+    const query = {
+      tags: { $regex: new RegExp(`^${tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+    };
+    if (status) query.status = status;
+
+    const novels = await Novel.find(query)
+      .sort(sortMap[sort] || { views: -1 })
+      .limit(Math.min(Number(limit), 50))
+      .select('title slug cover rating ratingCount views status genres tags chapterCount updatedAt');
+
+    res.json({ novels, total: novels.length, tag });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET novel by slug (for clean URLs) ── after /similar and /by-tag
+app.get('/api/novels/slug/:slug', async (req, res) => {
+  try {
+    const novel = await Novel.findOne({ slug: req.params.slug });
+    if (!novel) return res.status(404).json({ error: 'Novel not found' });
+    novel.views += 1;
+    novel.viewsToday += 1;
+    novel.viewsWeek  += 1;
+    novel.viewsMonth += 1;
+    await novel.save();
+    res.json(novel);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

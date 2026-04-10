@@ -296,7 +296,7 @@ app.get('/api/novels', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── GET /api/novels/slug/:slug/similar ── MUST be before /slug/:slug ─────────
+// ── GET /api/novels/slug/:slug/similar ── MUST be before /slug/:slug ──────────
 // Returns novels similar to the given slug, ranked by number of shared tags.
 // Falls back to shared genres if tag overlap is low.
 // Query params:
@@ -343,7 +343,21 @@ app.get('/api/novels/slug/:slug/similar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── GET /api/novels/by-tag/:tag ── MUST be before /slug/:slug ────────────────
+// GET novel by slug (for clean URLs)
+app.get('/api/novels/slug/:slug', async (req, res) => {
+  try {
+    const novel = await Novel.findOne({ slug: req.params.slug });
+    if (!novel) return res.status(404).json({ error: 'Novel not found' });
+    novel.views += 1;
+    novel.viewsToday += 1;
+    novel.viewsWeek  += 1;
+    novel.viewsMonth += 1;
+    await novel.save();
+    res.json(novel);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/novels/by-tag/:tag ───────────────────────────────────────────────
 // Returns top novels that have a specific tag, sorted by views/rating/etc.
 // Used by the /best and /novels-like pages to auto-populate curated lists.
 // Query params:
@@ -376,20 +390,6 @@ app.get('/api/novels/by-tag/:tag', async (req, res) => {
       .select('title slug cover rating ratingCount views status genres tags chapterCount updatedAt');
 
     res.json({ novels, total: novels.length, tag });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// GET novel by slug (for clean URLs) ── after /similar and /by-tag
-app.get('/api/novels/slug/:slug', async (req, res) => {
-  try {
-    const novel = await Novel.findOne({ slug: req.params.slug });
-    if (!novel) return res.status(404).json({ error: 'Novel not found' });
-    novel.views += 1;
-    novel.viewsToday += 1;
-    novel.viewsWeek  += 1;
-    novel.viewsMonth += 1;
-    await novel.save();
-    res.json(novel);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

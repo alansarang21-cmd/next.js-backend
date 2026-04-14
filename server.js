@@ -118,11 +118,14 @@ const chapterSchema = new mongoose.Schema({
 const commentSchema = new mongoose.Schema({
   novelId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Novel', required: true },
   chapterNum: { type: Number, default: null }, // null = novel-level comment
-  userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   userName:  { type: String, required: true },
   userAvatar:{ type: String, default: '' },
   text:      { type: String, required: true, maxlength: 1000 },
   likes:     [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  // Ghost comment fields — admin-only, never exposed to the client
+  isGhost:    { type: Boolean, default: false },
+  ghostColor: { type: String, default: '' }, // avatar background color hex
 }, { timestamps: true });
 
 const User    = mongoose.model('User', userSchema);
@@ -588,10 +591,44 @@ app.get('/api/novels/:id/comments', async (req, res) => {
     const comments = await Comment.find(query)
       .sort({ createdAt: -1 })
       .limit(Number(limit))
-      .skip((Number(page) - 1) * Number(limit));
+      .skip((Number(page) - 1) * Number(limit))
+      .select('-isGhost -ghostColor');  // never expose ghost metadata to the client
     const total = await Comment.countDocuments(query);
     res.json({ comments, total, pages: Math.ceil(total / limit) });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST ghost comment — admin only
+// Body: { text, ghostName, ghostColor?, chapterNum? }
+// ghostColor: any CSS hex e.g. '#e74c3c'. Falls back to a hash of the name if omitted.
+// The comment is stored with isGhost:true and no real userId — looks identical to visitors.
+app.post('/api/novels/:id/comments/ghost', requireAdmin, async (req, res) => {
+  try {
+    const { text, ghostName, ghostColor, chapterNum } = req.body;
+    if (!text || !text.trim()) return res.status(400).json({ error: 'Comment cannot be empty' });
+    if (text.length > 1000) return res.status(400).json({ error: 'Comment too long (max 1000 chars)' });
+    if (!ghostName || !ghostName.trim()) return res.status(400).json({ error: 'ghostName is required' });
+
+    // Derive a consistent color from the name if none supplied
+    function nameToColor(name) {
+      const palette = ['#e74c3c','#e67e22','#f1c40f','#2ecc71','#1abc9c','#3498db','#9b59b6','#e91e63','#00bcd4','#ff5722'];
+      let hash = 0;
+      for (const c of name) hash = (hash * 31 + c.charCodeAt(0)) & 0xffffffff;
+      return palette[Math.abs(hash) % palette.length];
+    }
+
+    const comment = await Comment.create({
+      novelId:    req.params.id,
+      chapterNum: chapterNum != null ? Number(chapterNum) : null,
+      userId:     null,
+      userName:   ghostName.trim(),
+      userAvatar: '',
+      text:       text.trim(),
+      isGhost:    true,
+      ghostColor: ghostColor || nameToColor(ghostName.trim()),
+    });
+    res.status(201).json(comment);
+  } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
 // POST add comment

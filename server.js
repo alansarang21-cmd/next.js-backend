@@ -348,11 +348,10 @@ app.get('/api/novels/slug/:slug', async (req, res) => {
   try {
     const novel = await Novel.findOne({ slug: req.params.slug });
     if (!novel) return res.status(404).json({ error: 'Novel not found' });
-    novel.views += 1;
-    novel.viewsToday += 1;
-    novel.viewsWeek  += 1;
-    novel.viewsMonth += 1;
-    await novel.save();
+    // Use $inc so Mongoose does NOT touch updatedAt — fixes "Latest Updates" pollution
+    await Novel.findByIdAndUpdate(novel._id, {
+      $inc: { views: 1, viewsToday: 1, viewsWeek: 1, viewsMonth: 1 },
+    });
     res.json(novel);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -397,11 +396,10 @@ app.get('/api/novels/:id', async (req, res) => {
   try {
     const novel = await Novel.findById(req.params.id);
     if (!novel) return res.status(404).json({ error: 'Novel not found' });
-    novel.views += 1;
-    novel.viewsToday += 1;
-    novel.viewsWeek  += 1;
-    novel.viewsMonth += 1;
-    await novel.save();
+    // Use $inc so Mongoose does NOT touch updatedAt — fixes "Latest Updates" pollution
+    await Novel.findByIdAndUpdate(novel._id, {
+      $inc: { views: 1, viewsToday: 1, viewsWeek: 1, viewsMonth: 1 },
+    });
     res.json(novel);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -468,7 +466,7 @@ app.get('/api/novels/:id/chapters/:num', async (req, res) => {
   try {
     const chapter = await Chapter.findOne({ novelId: req.params.id, number: Number(req.params.num) });
     if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
-    chapter.views += 1; await chapter.save();
+    await Chapter.findByIdAndUpdate(chapter._id, { $inc: { views: 1 } });
     res.json(chapter);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -567,10 +565,13 @@ app.post('/api/novels/:id/rate', requireAuth, async (req, res) => {
     const { rating } = req.body;
     const novel = await Novel.findById(req.params.id);
     if (!novel) return res.status(404).json({ error: 'Novel not found' });
-    novel.rating = Math.round((((novel.rating * novel.ratingCount) + rating) / (novel.ratingCount + 1)) * 10) / 10;
-    novel.ratingCount += 1;
-    await novel.save();
-    res.json({ rating: novel.rating, ratingCount: novel.ratingCount });
+    // Compute new values, then use $set so Mongoose does NOT touch updatedAt
+    const newRating = Math.round((((novel.rating * novel.ratingCount) + rating) / (novel.ratingCount + 1)) * 10) / 10;
+    const newCount  = novel.ratingCount + 1;
+    await Novel.findByIdAndUpdate(novel._id, {
+      $set: { rating: newRating, ratingCount: newCount },
+    });
+    res.json({ rating: newRating, ratingCount: newCount });
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 

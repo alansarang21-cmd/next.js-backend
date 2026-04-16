@@ -526,9 +526,15 @@ app.post('/api/novels/:id/chapters/bulk', requireOwner, async (req, res) => {
       }
     }
 
-    // Update novel chapterCount + updatedAt
+    // Only bump updatedAt when new chapters were actually created.
+    // If the scraper ran and found nothing new (all skipped), we still sync
+    // chapterCount in case it drifted — but we do NOT touch updatedAt, so
+    // the novel won't appear in Latest Updates for a no-op scrape run.
     const chapterCount = await Chapter.countDocuments({ novelId });
-    await Novel.findByIdAndUpdate(novelId, { chapterCount, updatedAt: new Date() });
+    const novelUpdate  = results.created > 0
+      ? { chapterCount, updatedAt: new Date() }
+      : { chapterCount };
+    await Novel.findByIdAndUpdate(novelId, novelUpdate);
 
     res.status(201).json({
       message: `Import complete: ${results.created} created, ${results.skipped} skipped, ${results.errors.length} errors`,

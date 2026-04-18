@@ -443,7 +443,7 @@ app.put('/api/novels/:id', requireOwner, handleUpload, async (req, res) => {
       if (req.novel.coverPublicId) await cloudinary.uploader.destroy(req.novel.coverPublicId);
       updates.cover = req.file.path; updates.coverPublicId = req.file.filename;
     }
-    const novel = await Novel.findByIdAndUpdate(req.params.id, updates, { new: true });
+    const novel = await Novel.findByIdAndUpdate(req.params.id, updates, { new: true, timestamps: false });
     res.json(novel);
   } catch (err) { console.error('Update novel error:', err); res.status(400).json({ error: err.message }); }
 });
@@ -564,7 +564,7 @@ app.delete('/api/novels/:id/chapters/:num', requireOwner, async (req, res) => {
     const chapter = await Chapter.findOneAndDelete({ novelId: req.params.id, number: Number(req.params.num) });
     if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
     const newCount = await Chapter.countDocuments({ novelId: req.params.id });
-    await Novel.findByIdAndUpdate(req.params.id, { chapterCount: newCount, updatedAt: new Date() });
+    await Novel.findByIdAndUpdate(req.params.id, { chapterCount: newCount }, { timestamps: false });
     res.json({ message: 'Chapter deleted' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

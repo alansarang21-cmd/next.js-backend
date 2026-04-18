@@ -483,8 +483,14 @@ app.post('/api/novels/:id/chapters', requireOwner, async (req, res) => {
     const wordCount = content.split(/\s+/).filter(Boolean).length;
     const chapter   = new Chapter({ novelId: req.params.id, authorId: req.user.id, number, title, content, wordCount });
     await chapter.save();
-    const newCount = await Chapter.countDocuments({ novelId: req.params.id });
-    await Novel.findByIdAndUpdate(req.params.id, { chapterCount: newCount, updatedAt: new Date() });
+    const prevNovel  = await Novel.findById(req.params.id).select('chapterCount');
+    const newCount   = await Chapter.countDocuments({ novelId: req.params.id });
+    // Only bump updatedAt when count genuinely grew — editing/re-uploading must not
+    // surface this novel in Latest Updates.
+    const chUpdate1  = newCount > (prevNovel?.chapterCount ?? 0)
+      ? { chapterCount: newCount, updatedAt: new Date() }
+      : { chapterCount: newCount };
+    await Novel.findByIdAndUpdate(req.params.id, chUpdate1);
     res.status(201).json(chapter);
   } catch (err) { console.error('Create chapter error:', err); res.status(400).json({ error: err.message }); }
 });
@@ -555,6 +561,8 @@ app.put('/api/novels/:id/chapters/:num', requireOwner, async (req, res) => {
       { title, content, wordCount }, { new: true }
     );
     if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
+    // DO NOT update Novel.updatedAt here — editing chapter content must not
+    // surface this novel in Latest Updates. Only a new chapter should do that.
     res.json(chapter);
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
@@ -564,6 +572,7 @@ app.delete('/api/novels/:id/chapters/:num', requireOwner, async (req, res) => {
     const chapter = await Chapter.findOneAndDelete({ novelId: req.params.id, number: Number(req.params.num) });
     if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
     const newCount = await Chapter.countDocuments({ novelId: req.params.id });
+    // timestamps:false — deleting a chapter must not change Novel.updatedAt
     await Novel.findByIdAndUpdate(req.params.id, { chapterCount: newCount }, { timestamps: false });
     res.json({ message: 'Chapter deleted' });
   } catch (err) { res.status(500).json({ error: err.message }); }
